@@ -1,0 +1,35 @@
+# azure-keyvault-template.yaml
+
+parameters:
+  - name: keyVaultName # Required: Name of the Azure Key Vault
+    type: string
+    displayName: 'Key Vault Name'
+    default: ''
+
+  - name: serviceConnection # Required: Name of the Azure service connection to the Key Vault.
+    type: string
+    displayName: 'Service Connection Name'
+    default: '' 
+
+  - name: runAsPreJob # Optional: Run as pre-job
+    type: boolean
+    displayName: 'Run as Pre-Job'
+    default: false
+
+  - name: secretsFilter # Optional: Filter for secrets to be retrieved
+    type: string
+    displayName: 'Secrets Filter'
+    default: '*'
+
+
+jobs:
+- job: RetrieveKeyVaultSecrets
+  displayName: 'Retrieve Key Vault Secrets'
+  steps:
+  - task: AzureKeyVault@2
+    displayName: 'Get Key Vault Secrets'
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      KeyVaultName: ${{ parameters.keyVaultName }}
+      secretsFilter: ${{ parameters.secretsFilter }}
+      runAsPreJob: ${{ parameters.runAsPreJob }}

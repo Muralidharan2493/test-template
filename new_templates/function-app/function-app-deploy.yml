@@ -1,0 +1,93 @@
+# azure-pipelines-functionapp-deploy.yml
+
+parameters:
+  - name: serviceConnectionName
+    type: string
+    displayName: Azure Resource Manager service connection
+  - name: resourceGroupName
+    type: string
+    displayName: Resource Group Name
+  - name: functionAppName
+    type: string
+    displayName: Function App Name
+  - name: packagePath
+    type: string
+    displayName: Path to the Function App package
+  - name: deploymentSlot
+    type: string
+    displayName: Deployment Slot (optional, leave empty for production)
+    default: ''
+  - name: appSettings
+    type: object
+    displayName: Application Settings (JSON object)
+    default: {}
+  - name: configurationSettings
+    type: object
+    displayName: Configuration Settings (JSON object)
+    default: {}
+  - name: slotSettings
+    type: object
+    displayName: Slot Settings (JSON object)
+    default: {}
+  - name: deployToSlot
+    type: boolean
+    displayName: Deploy to Slot
+    default: false
+  - name: swapSlots
+    type: boolean
+    displayName: Swap Slots after deployment
+    default: false
+  - name: enableAppSettings
+    type: boolean
+    displayName: Enable App Settings
+    default: true
+  - name: enableConfigurationSettings
+    type: boolean
+    displayName: Enable Configuration Settings
+    default: true
+  - name: enableSlotSettings
+    type: boolean
+    displayName: Enable Slot Settings
+    default: true
+
+jobs:
+  - job: DeployFunctionApp
+    displayName: Deploy Function App
+    steps:
+      - task: DownloadPipelineArtifact@2
+        displayName: 'Download func app zip file'
+        inputs:
+          artifactName: 'functionapp'
+          downloadPath: '$(Build.SourcesDirectory)'
+      - task: Bash@3
+        inputs:
+          targetType: 'inline'
+          script: |
+            ls "$(Build.SourcesDirectory)"          
+      - task: AzureFunctionApp@1
+        displayName: 'Azure Function App Deploy: ${{ parameters.functionAppName }}'
+        inputs:
+          azureSubscription: '${{ parameters.serviceConnectionName }}'
+          appType: 'functionApp'
+          appName: '${{ parameters.functionAppName }}'
+          package: '${{ parameters.packagePath }}'
+          resourceGroupName: '${{ parameters.resourceGroupName }}'
+          deploymentMethod: 'zipDeploy'
+          slotName: '${{ parameters.deploymentSlot }}'
+          deployToSlotOrASE: '${{ parameters.deployToSlot }}'
+          appSettings: '${{ convertToJson(parameters.appSettings) }}'
+          configurationStrings: '${{ convertToJson(parameters.configurationSettings) }}'
+          slotSettings: '${{ convertToJson(parameters.slotSettings) }}'
+          enableAppSettings: '${{ parameters.enableAppSettings }}'
+          enableConfigurationStrings: '${{ parameters.enableConfigurationSettings }}'
+          enableSlotSettings: '${{ parameters.enableSlotSettings }}'
+
+      - ${{ if and(parameters.deployToSlot, parameters.swapSlots) }}:
+        - task: AzureAppServiceManage@0
+          displayName: 'Swap Deployment Slots'
+          inputs:
+            azureSubscription: '${{ parameters.serviceConnectionName }}'
+            appName: '${{ parameters.functionAppName }}'
+            resourceGroupName: '${{ parameters.resourceGroupName }}'
+            slot: '${{ parameters.deploymentSlot }}'
+            action: 'Swap Slots'

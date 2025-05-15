@@ -1,0 +1,52 @@
+# Template for Python to Linux Web App on Azure
+# This template builds a Python project and deploys it to Azure as a Linux Web App.
+
+parameters:
+  - name: azureServiceConnectionId
+    default: ''
+  - name: webAppName
+    default: ''
+  - name: vmImageName
+    default: 'ubuntu-latest'
+  - name: environmentName
+    default: ''
+  - name: pythonVersion
+    default: '3.11'
+  - name: dependent_on
+    default: ''
+  - name: deployToSlotOrASE
+    default: 'false'
+  - name: slotName
+    default: ''
+  - name: resourceGroupName
+    default: ''
+
+stages:
+- stage: 'Deploy_${{ parameters.environmentName }}'
+  displayName: '${{ parameters.environmentName }} Web App Deployment'
+  dependsOn: ${{ parameters.dependent_on }}
+  condition: succeeded()
+  jobs:
+  - deployment: DeploymentJob
+    pool:
+      vmImage: ${{ parameters.vmImageName }}
+    environment: ${{ parameters.environmentName }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '${{ parameters.pythonVersion }}'
+            displayName: 'Use Python version'
+
+          - task: AzureWebApp@1
+            displayName: 'Deploy Azure Web App : ${{ parameters.webAppName }}'
+            inputs:
+              azureSubscription: ${{ parameters.azureServiceConnectionId }}
+              appName: ${{ parameters.webAppName }}
+              package: $(Pipeline.Workspace)/$(Artifact_Name)/$(Artifact_Name).zip
+              deployToSlotOrASE: ${{ parameters.deployToSlotOrASE }}
+              resourceGroupName: ${{ parameters.resourceGroupName }}
+              slotName: ${{ parameters.slotName }}

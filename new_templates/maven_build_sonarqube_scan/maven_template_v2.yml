@@ -1,0 +1,139 @@
+parameters:
+  - name: mavenPomFile #(Required) Relative path from the repository root to the Maven POM file.
+    default: pom.xml
+  - name: options      #(Optional) Specify any Maven command-line options you want to use.
+    default: ' '
+  - name: goals #(Required) Specify the goal type of maven life cycle requires to compile the code.
+    default: package 
+  - name: jdkDirectory     #(Required) when javaHomeOption == Path, Sets JAVA_HOME to the given path. 
+    default: ' '
+  - name: javaHomeOption       #(Options): jDKVersion, path. Sets Java Home by Jdk version or Path.
+    default: 'JDKVersion'
+  - name: jdkVersionOption  #(Optional). Options: default, 1.11, 1.10, 1.9, 1.8, 1.7, 1.6 (Optional) Will attempt to discover the path 
+    default: 'default'      #to the selected JDK version and set JAVA_HOME accordingly. 
+  - name: mavenDirectory     #(Required) when mavenVersionOption == Path Sets the maven home path
+    default: ' '  
+  - name: mavenVersionOption    #(Options:) default, path, Sets Maven Home by Maven version or Path.
+    default: 'default'
+  - name: mavenSetM2Home      #(Required) when mavenVersionOption == Path
+    default: false
+  - name: publishJUnitResults #(Required) for publishing Junit result
+    default: true
+# junit test results    
+  - name: testResultsFiles  #(Required) when publishJUnitResults == True
+    default: '**/surefire-reports/TEST-*.xml'
+
+  # updated parameters - CFT Devops Engineering updates to use SonarQube for code scan
+  - name: project_key
+    type: string
+    default: ''  # No default, must be provided
+  - name: sonar_service_connection
+    type: string
+    default: ''  # No default, must be provided
+  - name: sources
+    type: string
+    default: '$(Build.SourcesDirectory)'
+  - name: java_binaries
+    type: string
+    default: '$(Build.SourcesDirectory)/target/classes'
+  - name: exclusions
+    type: string
+    default: '**/target/**/*, **/target/**, **/src/test/**/*, **/src/test/**'
+  - name: jacoco_report_paths
+    type: string
+    default: '**/target/site/jacoco/jacoco.xml'
+  - name: junit_report_paths
+    type: string
+    default: '/maven-artifacts/target/surefire-reports'
+  - name: tests_location
+    type: string
+    default: 'src/test'
+  - name: run_sonarqube_build_breaker
+    type: boolean
+    default: true
+# download path of maven build artifcat in vmms agent for sonarqube to scan    
+  - name: maven_build_artifact_download_path
+    type: string
+    default: 'maven-artifacts' 
+
+jobs:
+  - job: MavenBuild
+    timeoutInMinutes: 60
+    steps:
+      - task: Maven@4
+        displayName: 'Maven Build'
+        inputs:
+          goals: ${{ parameters.goals }}
+          mavenPomFile: ${{ parameters.mavenPomFile }}
+          javaHomeOption: ${{ parameters.javaHomeOption }}
+          jdkVersionOption: ${{ parameters.jdkVersionOption }}
+          jdkDirectory: ${{ parameters.jdkDirectory }}
+          mavenDirectory: ${{ parameters.mavenDirectory }}
+          mavenVersionOption: ${{ parameters.mavenVersionOption }}
+          mavenSetM2Home: ${{ parameters.mavenSetM2Home }}
+          options: ${{ parameters.options }}
+          publishJUnitResults: ${{ parameters.publishJUnitResults }}
+          testResultsFiles: ${{ parameters.testResultsFiles }}
+
+      - task: CopyFiles@2
+        displayName: 'Copy Maven Artifacts to Staging Directory'
+        inputs:
+          #Source: '$(Build.SourcesDirectory)/template_test/sonarqube/**'
+          Source: ${{parameters.sources}}
+          TargetFolder: '$(Build.ArtifactStagingDirectory)'
+
+      - task: PublishPipelineArtifact@1
+        displayName: 'Publish Maven Build Artifacts'
+        inputs:
+          targetPath: '$(Build.ArtifactStagingDirectory)'
+          artifactName: 'maven-artifacts'
+          publishLocation: 'pipeline'
+
+
+  - job: Sonar_prepare_analyze_and_publish
+    pool:
+      name: 'VMSS-Agents'
+    dependsOn: MavenBuild
+    steps:
+      - task: DownloadPipelineArtifact@2
+        displayName: 'Download Maven Build Artifacts'
+        inputs:
+          artifactName: 'maven-artifacts'
+          downloadPath: "$(Build.SourcesDirectory)/${{ parameters.maven_build_artifact_download_path }}"
+
+      - task: Bash@3
+        inputs:
+          targetType: 'inline'
+          script: |
+            java -version
+            find "$(Build.SourcesDirectory)/${{ parameters.maven_build_artifact_download_path }}"  # Verify download
+
+      - task: SonarQubePrepare@5
+        displayName: 'Prepare SonarQube analysis'
+        inputs:
+          SonarQube: ${{ parameters.sonar_service_connection }}
+          scannerMode: 'CLI'
+          configMode: 'manual'
+          cliProjectKey: ${{ parameters.project_key }}
+          cliSources: ${{ parameters.sources }}
+          extraProperties: |
+            sonar.java.binaries=$(Build.SourcesDirectory)/maven-artifacts
+            -Djava.net.useSystemProxies=false
+            sonar.exclusions=${{ parameters.exclusions }}
+            sonar.coverage.jacoco.xmlReportPaths=${{ parameters.jacoco_report_paths }}
+            sonar.junit.reportPaths="$(Build.SourcesDirectory)/${{ parameters.junit_report_paths }}"
+            sonar.tests=${{ parameters.tests_location }}
+
+      - task: SonarQubeAnalyze@5
+        displayName: 'Run SonarQube analysis'
+
+      - task: SonarQubePublish@5
+        displayName: 'Publish SonarQube results'
+        inputs:
+          pollingTimeoutSec: '600'
+
+      - task: sonar-buildbreaker@8
+        condition: ${{ parameters.run_sonaqube_build_breaker }}
+        displayName: 'SonarQube Quality Gate' 
+        inputs:
+          SonarQube: ${{ parameters.sonar_service_connection }}
